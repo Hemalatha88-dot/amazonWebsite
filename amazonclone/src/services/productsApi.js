@@ -32,3 +32,13 @@ export async function fetchProductsByCategory(categorySlug) {
   )
   return parseResponse(response, 'Failed to fetch category products')
 }
+
+export async function fetchProductById(id) {
+  const response = await fetch(`${BASE_URL}/products/${encodeURIComponent(id)}`)
+
+  if (response.status === 404) {
+    throw new Error('Product not found.')
+  }
+
+  return parseResponse(response, 'Failed to fetch product')
+}

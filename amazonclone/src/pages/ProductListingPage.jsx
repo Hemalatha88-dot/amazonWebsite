@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import EmptyState from '../components/common/EmptyState'
 import ErrorState from '../components/common/ErrorState'
 import LoadingState from '../components/common/LoadingState'
@@ -17,6 +18,7 @@ import {
   getUniqueBrands,
   parsePriceInput,
 } from '../utils/filterProducts'
+import { readPlpStateFromSearchParams, serializePlpState } from '../utils/plpQuery'
 import './ProductListingPage.css'
 
 const PRODUCTS_PER_PAGE = 8
@@ -43,23 +45,30 @@ function normalizeCategories(data) {
 }
 
 function ProductListingPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const urlState = readPlpStateFromSearchParams(searchParams)
+
   const [categories, setCategories] = useState([])
   const [allProducts, setAllProducts] = useState([])
   const [categoryProducts, setCategoryProducts] = useState([])
-  const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY)
-  const [selectedBrands, setSelectedBrands] = useState([])
-  const [minPriceInput, setMinPriceInput] = useState('')
-  const [maxPriceInput, setMaxPriceInput] = useState('')
-  const [appliedMinPrice, setAppliedMinPrice] = useState(null)
-  const [appliedMaxPrice, setAppliedMaxPrice] = useState(null)
+  const [selectedCategory, setSelectedCategory] = useState(urlState.selectedCategory)
+  const [selectedBrands, setSelectedBrands] = useState(urlState.selectedBrands)
+  const [minPriceInput, setMinPriceInput] = useState(urlState.minPriceInput)
+  const [maxPriceInput, setMaxPriceInput] = useState(urlState.maxPriceInput)
+  const [appliedMinPrice, setAppliedMinPrice] = useState(urlState.appliedMinPrice)
+  const [appliedMaxPrice, setAppliedMaxPrice] = useState(urlState.appliedMaxPrice)
   const [priceError, setPriceError] = useState('')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(urlState.currentPage)
   const [loading, setLoading] = useState(true)
   const [categoryLoading, setCategoryLoading] = useState(false)
   const [error, setError] = useState(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const listingRef = useRef(null)
+  const skipUrlSyncRef = useRef(true)
+
+  const listingPath = `${location.pathname}${location.search}`
 
   const sourceProducts = useMemo(() => {
     if (selectedCategory === ALL_CATEGORY) {
@@ -101,12 +110,36 @@ function ProductListingPage() {
   useEffect(() => {
     let cancelled = false
 
+    const categoryAtLoad = selectedCategory
+
     Promise.all([fetchCategories(), fetchAllProducts()])
-      .then(([categoriesData, productsData]) => {
+      .then(async ([categoriesData, productsData]) => {
         if (cancelled) return
         setCategories(normalizeCategories(categoriesData))
         setAllProducts(productsData.products)
         setError(null)
+
+        if (categoryAtLoad !== ALL_CATEGORY) {
+          setCategoryLoading(true)
+          try {
+            const data = await fetchProductsByCategory(categoryAtLoad)
+            if (!cancelled) {
+              setCategoryProducts(data.products)
+            }
+          } catch (err) {
+            if (!cancelled) {
+              setCategoryProducts([])
+              setError(
+                err.message ||
+                  'Something went wrong while loading category products.',
+              )
+            }
+          } finally {
+            if (!cancelled) {
+              setCategoryLoading(false)
+            }
+          }
+        }
       })
       .catch((err) => {
         if (cancelled) return
@@ -123,7 +156,43 @@ function ProductListingPage() {
     return () => {
       cancelled = true
     }
-  }, [reloadToken])
+  }, [reloadToken, selectedCategory])
+
+  useEffect(() => {
+    if (loading) {
+      return
+    }
+
+    if (skipUrlSyncRef.current) {
+      skipUrlSyncRef.current = false
+      return
+    }
+
+    const nextParams = serializePlpState({
+      selectedCategory,
+      selectedBrands,
+      appliedMinPrice,
+      appliedMaxPrice,
+      minPriceInput,
+      maxPriceInput,
+      currentPage,
+    })
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }, [
+    loading,
+    selectedCategory,
+    selectedBrands,
+    appliedMinPrice,
+    appliedMaxPrice,
+    minPriceInput,
+    maxPriceInput,
+    currentPage,
+    searchParams,
+    setSearchParams,
+  ])
 
   const resetToFirstPage = () => {
     setCurrentPage(1)
@@ -292,7 +361,12 @@ function ProductListingPage() {
                 {!isListLoading && error && (
                   <ErrorState message={error} onRetry={handleRetry} />
                 )}
-                {showGrid && <ProductGrid products={paginatedProducts} />}
+                {showGrid && (
+                  <ProductGrid
+                    products={paginatedProducts}
+                    listingPath={listingPath}
+                  />
+                )}
                 {showEmpty && <EmptyState />}
 
                 {showGrid && (
