@@ -1,16 +1,7 @@
-import './App.css'
+import ProductListingPage from './pages/ProductListingPage'
 
 function App() {
-
-  return (
-    <>
-      <section id="center">
-        <div>
-          <h1>Amazon Clone</h1>
-        </div>
-      </section>
-    </>
-  )
+  return <ProductListingPage />
 }
 
 export default App
